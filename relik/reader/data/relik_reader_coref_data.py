@@ -346,12 +346,22 @@ class RelikDataset(IterableDataset):
         sample.window_labels.sort(key=lambda x: (x[0], x[1]))
         prev_start_bpe = -1
         offset = 0
+        entities_dictionary = {}
+        ent_counter = 1000
         for cs, ce, gold_candidate_title in sample.window_labels:
-            if gold_candidate_title not in predictable_candidates:
+            if gold_candidate_title not in predictable_candidates or gold_candidate_title == "--NME--":
                 if self.use_nme:
-                    gold_candidate_title = NME_SYMBOL
+                    if gold_candidate_title !=  "--NME--" and gold_candidate_title not in entities_dictionary:
+                        entities_dictionary[gold_candidate_title] = ent_counter
+                        ent_counter += 1
+                    elif gold_candidate_title == "--NME--":
+                        gold_candidate_title = NME_SYMBOL + str(ent_counter)
+                        entities_dictionary[gold_candidate_title] = ent_counter
+                        ent_counter += 1
+                    # gold_candidate_title = NME_SYMBOL
                 else:
                     continue
+
             # +1 is to account for the CLS token
             try:
                 start_bpe = char_start2token[cs] + 1
@@ -367,8 +377,10 @@ class RelikDataset(IterableDataset):
                 while ce not in char_end2token:
                     ce += 1
                 end_bpe = char_end2token[ce] + 1
-
-            class_index = predictable_candidates.index(gold_candidate_title)
+            if gold_candidate_title in predictable_candidates:
+                class_index = predictable_candidates.index(gold_candidate_title)
+            else:
+                class_index = entities_dictionary[gold_candidate_title]
 
             start_labels[start_bpe] = class_index + 1  # +1 for the NONE class
             if start_bpe != prev_start_bpe:
@@ -893,12 +905,23 @@ class RelikDataset(IterableDataset):
             # and where is the order?
             char_probs_annotations[(span_start, span_end)] = candidates_probs
 
+        char_cluster_annotations = dict()
+        for cluster_id, cluster_spans in sample.predicted_clusters.items():
+            for span_start, span_end, title in cluster_spans:
+                span_start = sample.token2char_start[str(span_start)]
+                span_end = sample.token2char_end[str(span_end)]
+                if cluster_id not in char_cluster_annotations:
+                    char_cluster_annotations[cluster_id] = list()
+                char_cluster_annotations[cluster_id].append((span_start, span_end, title))
+
         sample.predicted_window_labels_chars = char_annotations
         sample.probs_window_labels_chars = char_probs_annotations
+        sample.predicted_clusters_chars = char_cluster_annotations
 
         # try-out for a new format
         sample.predicted_spans = char_annotations
         sample.predicted_spans_probabilities = char_probs_annotations
+        sample.predicted_clusters = char_cluster_annotations
 
         return sample
 
@@ -984,12 +1007,42 @@ class RelikDataset(IterableDataset):
                 title for title, _ in candidates_probs
             }
 
+        word_cluster_annotations = dict()
+        for cluster_id, cluster_spans in sample.predicted_clusters.items():
+            for span_start, span_end, title in cluster_spans:
+                if str(span_start) not in sample.token2word_start:
+                    # span_start is in the middle of a word
+                    # retrieve the first token of the word
+                    while str(span_start) not in sample.token2word_start:
+                        span_start -= 1
+                        # skip
+                        if span_start < 0:
+                            break
+                if str(span_end) not in sample.token2word_end:
+                    # span_end is in the middle of a word
+                    # retrieve the last token of the word
+                    while str(span_end) not in sample.token2word_end:
+                        span_end += 1
+                        # skip
+                        if span_end >= len(sample.tokens):
+                            break
+
+                if span_start < 0 or span_end >= len(sample.tokens):
+                    continue
+                span_start = sample.token2word_start[str(span_start)]
+                span_end = sample.token2word_end[str(span_end)]
+                if cluster_id not in word_cluster_annotations:
+                    word_cluster_annotations[cluster_id] = list()
+                word_cluster_annotations[cluster_id].append((span_start, span_end + 1, title))
+
         sample.predicted_window_labels_words = word_annotations
         sample.probs_window_labels_words = word_probs_annotations
+        sample.predicted_clusters_words = word_cluster_annotations
 
         # try-out for a new format
         sample.predicted_spans = word_annotations
         sample.predicted_spans_probabilities = word_probs_annotations
+        sample.predicted_clusters = word_cluster_annotations
         return sample
 
     @staticmethod
@@ -999,6 +1052,9 @@ class RelikDataset(IterableDataset):
 
         sample._d["span_title_probabilities"] = dict()
         span_title_probabilities = sample._d["span_title_probabilities"]
+
+        sample._d["predicted_clusters"] = dict()
+        predicted_clusters = sample._d["predicted_clusters"]
 
         span2title = dict()
         for _, patch_info in sorted(sample.patches.items(), key=lambda x: x[0]):
@@ -1020,6 +1076,15 @@ class RelikDataset(IterableDataset):
             ].items():
                 if predicted_span not in span_title_probabilities:
                     span_title_probabilities[predicted_span] = titles_probabilities
+
+            # selecting clusters
+            for cluster_id, cluster_spans in patch_info["predicted_clusters"].items():
+                if cluster_id not in predicted_clusters:
+                    predicted_clusters[cluster_id] = cluster_spans
+                else:
+                    for span in cluster_spans:
+                        if span not in predicted_clusters[cluster_id]:
+                            predicted_clusters[cluster_id].append(span)
 
         for span, title in span2title.items():
             if title not in predicted_window_labels:

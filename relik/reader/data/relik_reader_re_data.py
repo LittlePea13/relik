@@ -431,8 +431,20 @@ class RelikREDataset(IterableDataset):
 
         def partition_data_samples(iterable, world_size, rank):
             def generator():
+                worker_info = torch.utils.data.get_worker_info()
+                if worker_info is None:
+                    # Single-process data loading, no extra partitioning needed
+                    total_partitions = world_size
+                    partition_id = rank
+                else:
+                    # Multi-process data loading, partition data among workers
+                    num_workers = worker_info.num_workers
+                    worker_id = worker_info.id
+                    total_partitions = world_size * num_workers
+                    partition_id = rank * num_workers + worker_id
+
                 for i, x in enumerate(iterable):
-                    if i % world_size == rank:
+                    if i % total_partitions == partition_id:
                         yield x
 
             return generator
@@ -730,7 +742,7 @@ class RelikREDataset(IterableDataset):
 
                     candidates_encoding_result = (
                         candidates_encoding_result[:i]
-                        + candidates_encoding_result[len(sample.span_candidates) : i]
+                        + candidates_encoding_result[len(sample.span_candidates) : len(sample.span_candidates) + i]
                     )
                     if len(self.special_symbols_types) > 0:
                         candidates_entities_symbols = candidates_entities_symbols[:i]

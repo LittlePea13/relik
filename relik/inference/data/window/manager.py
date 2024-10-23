@@ -391,6 +391,22 @@ class WindowManager:
             ):
                 if span_prediction not in merged_span_probabilities:
                     merged_span_probabilities[span_prediction] = predicted_probs
+                else:
+                    merged_span_probabilities[span_prediction].extend(predicted_probs)
+                    # resort 
+                    merged_span_probabilities[span_prediction] = sorted(
+                        merged_span_probabilities[span_prediction],
+                        key=lambda x: x[1],
+                        reverse=True,
+                    )
+                    # # renormalize
+                    # total_prob = sum(
+                    #     [p for _, p in merged_span_probabilities[span_prediction]]
+                    # )
+                    # merged_span_probabilities[span_prediction] = [
+                    #     (title, prob / total_prob)
+                    #     for title, prob in merged_span_probabilities[span_prediction]
+                    # ]
 
             if (
                 getattr(window1, "predicted_triplets", None) is not None
@@ -523,6 +539,7 @@ class WindowManager:
                 predicted_spans_probs=predicted_spans_probs,
                 predicted_triplets=predicted_triplets,
                 predicted_triplets_probs=predicted_triplets_probs,
+                probs_window_labels_chars=predicted_spans_probs,
             )
         )
 

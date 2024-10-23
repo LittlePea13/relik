@@ -52,9 +52,9 @@ class RelikReaderForSpanExtraction(RelikReaderBase):
     """
 
     default_reader_class: str = (
-        "relik.reader.pytorch_modules.hf.modeling_relik.RelikReaderSpanModel"
+        "relik.reader.pytorch_modules.hf.modeling_relik.RelikReaderSpanCorefModel"
     )
-    default_data_class: str = "relik.reader.data.relik_reader_data.RelikDataset"
+    default_data_class: str = "relik.reader.data.relik_reader_coref_data.RelikDataset"
 
     def __init__(
         self,
@@ -306,15 +306,17 @@ class RelikReaderForSpanExtraction(RelikReaderBase):
         ned_end_predictions = forward_output["ned_end_predictions"]  # .cpu().numpy()
         ed_predictions = forward_output["ed_predictions"].cpu().numpy()
         ed_probabilities = forward_output["ed_probabilities"].cpu().numpy()
+        coref_predictions = forward_output["coref_predictions"].cpu().numpy()
 
         batch_predictable_candidates = kwargs["predictable_candidates"]
         patch_offset = kwargs["patch_offset"]
-        for ts, ne_sp, ne_ep, edp, edpr, pred_cands, po in zip(
+        for ts, ne_sp, ne_ep, edp, edpr, crefp, pred_cands, po in zip(
             sample,
             ned_start_predictions,
             ned_end_predictions,
             ed_predictions,
             ed_probabilities,
+            coref_predictions,
             batch_predictable_candidates,
             patch_offset,
         ):
@@ -324,6 +326,7 @@ class RelikReaderForSpanExtraction(RelikReaderBase):
             # ne_end_indices = [ti for ti, c in enumerate(ne_ep[1:]) if c > 0]
             final_class2predicted_spans = collections.defaultdict(list)
             spans2predicted_probabilities = dict()
+            clusters = collections.defaultdict(list)
             for start_token_index, end_token_index in zip(ne_start_indices, ne_ep):
                 for end_token_index in [
                     ti for ti, c in enumerate(end_token_index[1:]) if c > 0
@@ -361,6 +364,12 @@ class RelikReaderForSpanExtraction(RelikReaderBase):
                     spans2predicted_probabilities[
                         (start_token_index, end_token_index)
                     ] = titles_2_probs
+
+                    # clusters
+                    cluster_index = crefp[ent_count]
+                    clusters[cluster_index].append(
+                        [start_token_index, end_token_index, predicted_candidate_title]
+                    )
                     ent_count += 1
 
             if "patches" not in ts._d:
@@ -380,5 +389,5 @@ class RelikReaderForSpanExtraction(RelikReaderBase):
             sample_patch["predicted_spans_probabilities"] = (
                 spans2predicted_probabilities
             )
-
+            sample_patch["predicted_clusters"] = clusters
             yield ts

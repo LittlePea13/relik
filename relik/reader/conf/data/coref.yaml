@@ -1,0 +1,25 @@
+train_dataset_path: "/media/ssd/perelluis/relik_data/reader/aida_mapped/aida_train_window_docs.shuf.jsonl"
+val_dataset_path: "/media/ssd/perelluis/relik_data/reader/aida_mapped/testa_windowed_candidates.jsonl"
+
+train_dataset:
+  _target_: "relik.reader.data.relik_reader_coref_data.RelikDataset"
+  transformer_model: "${model.model.transformer_model}"
+  materialize_samples: False
+  shuffle_candidates: 0.5
+  random_drop_gold_candidates: 0.05
+  noise_param: 0.0
+  for_inference: False
+  tokens_per_batch: 8192
+  max_length: 8192
+  model_max_length: 8192
+  special_symbols: null
+
+val_dataset:
+  _target_: "relik.reader.data.relik_reader_coref_data.RelikDataset"
+  transformer_model: "${model.model.transformer_model}"
+  materialize_samples: False
+  shuffle_candidates: False
+  for_inference: True
+  max_length: 1024
+  model_max_length: 1024
+  special_symbols: null
